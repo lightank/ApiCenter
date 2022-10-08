@@ -4,8 +4,10 @@
 ## 组件化方案与路由方案
 
 组件化跟路由解决的主要问题还是有一些区别的。
-组件化方案：主要是解决本地代码模块化后的跨业务线调用场景（无解析过程）
-路由方案：主要是解决远端、本地的业务调用（有解析过程，可能跨业务线）
+
+组件化方案：处理的对象是模块（包含多个页面、服务等），主要是解决本地代码模块化后的跨模块调用场景（模块调用模块）（无解析过程）
+
+路由方案：处理的对象单个页面或者单个服务，主要是解决远端、本地的单个业务调用（有解析过程，可能跨业务线）
 
 组件化方案跟路由方案并不冲突，很多情况下是配合使用的：
 
@@ -21,7 +23,7 @@
 
 ## Protocol 方案
 
-注意：不是 Protocol-Class 方案，是 Protocol 方案
+注意：不是 Protocol-Class 方案，是 Protocol 方案（无 class 注册流程）
 
 要求：
 1. 不依赖任何语言特性，任一语言均可实现
@@ -78,10 +80,11 @@ public class ApiCenter: ApiCenterProtocol {
 ## 说明
 
 1. 业务库需要拆分成两个库：API（纯 Protocol）、IMP（完整业务代码+API的具体实现，也就是说必须依赖 API 库）
-2. API公开状态，IMP库不公开。API 不依赖任何其它仓库，会被对应的 IMP 依赖并实现
-3. API、IMP 如果有公用的类型，必须放在 API 库里，同时 IMP 必须依赖 API库
-4. 业务库之间只能依赖 API 库，不得依赖 IMP 库
-5. IMP 库如果需要调用其它 API 的方法，则需要依赖 ApiCenter 库
+2. API 库公开给其它模块调用，IMP库不公开
+3. API 只能依赖一个库：对应的 IMP 库（版本依赖应该使用 >= ,即：有个最小依赖版本）。其它业务库只能依赖 API 库，不得依赖 IMP 库。
+4. IMP 库有版本更新，必须同步更新对外更新 API 库版本（即使没有 Protocol 无 任何变化），对外功能的更新说明以 Protocol 为准。主要是为了规避 API、IMP 版本不一致导致功能异常的问题，同时保持对外只有1个窗口
+5. API、IMP 如果有公用的类型，必须放在 API 库里，同时 IMP 必须依赖 API库并实现
+6. IMP 库如果需要调用其它 API 的方法，则需要依赖 ApiCenter 库
 
 依赖关系如图：
 
@@ -181,6 +184,34 @@ public class ApiCenter: ApiCenterProtocol {
     ApiCenter.shared.api(type: ModuleBApiProtocol.self)?.descriptionB()
     ```
 
+6. ModuleA 功能迭代更新升级版本：从 1.0.0 到 2.0.0 
+   1. ModuleA 库中修改 ModuleA.podspec 升级版本
+
+        ```
+        // 升级前
+        s.name = "ModuleA"
+        s.version = "1.0.0"
+
+        // 升级前
+        s.name = "ModuleA"
+        s.version = "2.0.0"
+        ```
+
+   2. ModuleAApiProtocol 中修改 ModuleAApi.podspec 依赖的 ModuleA 版本以及自身版本，并添加升级内容说明
+
+        ```
+        // 升级前
+        s.name = "ModuleAApi"
+        s.version = "1.0.0"
+        s.dependency "ModuleA", ">= 1.0.0"
+
+        // 升级前
+        s.name = "ModuleAApi"
+        s.version = "2.0.0"
+        s.dependency "ModuleA", ">= 2.0.0"
+        ```
+
+
 ## 其它用途
 
 ApiCenter 可以作为组件库方案，同时也可以做其它用途
@@ -188,6 +219,45 @@ ApiCenter 可以作为组件库方案，同时也可以做其它用途
 1. 数据共享，公共数据抽取一个 Protocol，然后注册一个单例对象作为 IMP，那么整个 App 共享的同一份数据。好处：
    1. 无需关心具体实现
    2. 实现方可变更方法具体实现，但不会影响现有逻辑
+2. 极简版：[Swinject](https://github.com/Swinject/Swinject)
+
+    ```swift
+    protocol Animal {
+        var name: String? { get }
+    }
+
+    class Cat: Animal {
+        let name: String?
+
+        init(name: String?) {
+            self.name = name
+        }
+    }
+
+    protocol Person {
+        func play()
+    }
+
+    class PetOwner: Person {
+        let pet: Animal
+
+        init(pet: Animal) {
+            self.pet = pet
+        }
+
+        func play() {
+            let name = pet.name ?? "someone"
+            print("I'm playing with \(name).")
+        }
+    }
+
+    let container = ApiCenter()
+    container.registerApi(type: Animal.self) { Cat(name: "Mimi") }
+    container.registerApi(type: Person.self) {
+        PetOwner(pet: container.api(type: Animal.self)!)
+    }
+    container.api(type: Person.self)?.play()
+    ```
 
 ## 其它说明
 
